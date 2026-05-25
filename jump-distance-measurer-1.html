@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#000000">
+<title>Jump Distance Measurer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #fff; }
+  #app { width: 100%; height: 100%; display: flex; flex-direction: column; }
+  #video-container { position: relative; flex: 1; overflow: hidden; background: #111; min-height: 0; }
+  #video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  canvas#line-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  #crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 44px; height: 44px; pointer-events: none; }
+  #crosshair::before,#crosshair::after { content:''; position:absolute; background:rgba(255,255,255,0.85); }
+  #crosshair::before { width:2px; height:100%; left:50%; transform:translateX(-50%); }
+  #crosshair::after { width:100%; height:2px; top:50%; transform:translateY(-50%); }
+  #start-dot,#end-dot { position:absolute; width:18px; height:18px; border-radius:50%; border:2.5px solid #fff; transform:translate(-50%,-50%); display:none; pointer-events:none; }
+  #start-dot { background:#4CAF50; }
+  #end-dot { background:#FF5722; }
+  #distance-badge { position:absolute; top:14px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.72); color:#fff; font-size:30px; font-weight:600; padding:8px 22px; border-radius:32px; display:none; white-space:nowrap; }
+  #distance-badge .unit { font-size:16px; opacity:0.75; margin-left:5px; }
+  #status-bar { position:absolute; bottom:14px; left:0; right:0; display:flex; justify-content:center; pointer-events:none; }
+  #status-msg { background:rgba(0,0,0,0.65); color:#fff; font-size:14px; padding:7px 18px; border-radius:22px; text-align:center; max-width:300px; line-height:1.4; }
+  #controls { background:#111; padding:12px 16px 30px; flex-shrink:0; }
+  #unit-row { display:flex; gap:6px; flex-wrap:wrap; justify-content:center; margin-bottom:14px; }
+  .unit-btn { padding:6px 15px; border-radius:20px; border:1px solid rgba(255,255,255,0.25); background:transparent; color:rgba(255,255,255,0.7); font-size:13px; cursor:pointer; }
+  .unit-btn.active { background:#fff; color:#000; border-color:#fff; font-weight:500; }
+  #action-row { display:flex; gap:12px; align-items:center; justify-content:center; }
+  #tap-btn { width:72px; height:72px; border-radius:50%; border:3px solid #fff; background:transparent; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  #tap-btn-inner { width:56px; height:56px; border-radius:50%; background:#fff; transition:all 0.15s; }
+  #tap-btn.measuring #tap-btn-inner { background:#FF5722; width:30px; height:30px; border-radius:6px; }
+  #reset-btn { padding:10px 22px; border-radius:22px; border:1px solid rgba(255,255,255,0.3); background:transparent; color:rgba(255,255,255,0.75); font-size:14px; cursor:pointer; }
+  #all-results { background:#1a1a1a; border-top:1px solid rgba(255,255,255,0.1); padding:10px 16px; display:none; flex-shrink:0; }
+  #results-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+  .result-item { text-align:center; padding:6px 4px; border-radius:8px; background:rgba(255,255,255,0.06); }
+  .result-val { font-size:15px; font-weight:500; color:#fff; }
+  .result-lbl { font-size:10px; color:rgba(255,255,255,0.45); margin-top:2px; }
+
+  /* Start screen — shown until user taps Start */
+  #start-screen { position:absolute; inset:0; background:#000; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:32px; text-align:center; z-index:10; }
+  #start-screen h1 { font-size:22px; font-weight:500; margin-bottom:12px; }
+  #start-screen p { color:rgba(255,255,255,0.6); font-size:15px; line-height:1.6; margin-bottom:28px; }
+  #start-btn { padding:16px 36px; border-radius:32px; border:none; background:#fff; color:#000; font-size:16px; font-weight:500; cursor:pointer; }
+
+  /* Error state */
+  #err-box { display:none; position:absolute; inset:0; background:rgba(0,0,0,0.92); flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:28px; text-align:center; z-index:20; }
+  #err-box.show { display:flex; }
+  #err-box p { color:rgba(255,255,255,0.8); font-size:15px; line-height:1.6; }
+  #retry-btn { padding:13px 30px; border-radius:28px; border:none; background:#fff; color:#000; font-size:15px; font-weight:500; cursor:pointer; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="video-container">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="line-canvas"></canvas>
+    <div id="start-dot"></div>
+    <div id="end-dot"></div>
+    <div id="distance-badge"><span id="dist-val">0</span><span class="unit" id="dist-unit">cm</span></div>
+    <div id="crosshair"></div>
+    <div id="status-bar"><div id="status-msg">Tap the start spot on screen</div></div>
+
+    <!-- Shown first — user must tap to trigger camera (required by browsers) -->
+    <div id="start-screen">
+      <h1>Jump Distance Measurer</h1>
+      <p>Point your camera at the ground, tap the takeoff spot, then tap the landing spot. Distance shown instantly in any unit.</p>
+      <button id="start-btn">Open Camera</button>
+    </div>
+
+    <!-- Error fallback -->
+    <div id="err-box">
+      <p id="err-text">Could not access camera.</p>
+      <button id="retry-btn">Try again</button>
+    </div>
+  </div>
+
+  <div id="controls">
+    <div id="unit-row">
+      <button class="unit-btn active" data-unit="cm">cm</button>
+      <button class="unit-btn" data-unit="m">m</button>
+      <button class="unit-btn" data-unit="in">inches</button>
+      <button class="unit-btn" data-unit="ft">feet</button>
+      <button class="unit-btn" data-unit="yd">yards</button>
+      <button class="unit-btn" data-unit="km">km</button>
+    </div>
+    <div id="action-row">
+      <button id="reset-btn" onclick="reset()">Reset</button>
+      <button id="tap-btn" onclick="handleTap()"><div id="tap-btn-inner"></div></button>
+      <div style="width:72px"></div>
+    </div>
+  </div>
+  <div id="all-results"><div id="results-grid"></div></div>
+</div>
+
+<script>
+const UNITS = {
+  cm: { label:'cm',     factor:1,         decimals:1 },
+  m:  { label:'m',      factor:0.01,      decimals:3 },
+  in: { label:'inches', factor:0.393701,  decimals:1 },
+  ft: { label:'feet',   factor:0.0328084, decimals:2 },
+  yd: { label:'yards',  factor:0.0109361, decimals:2 },
+  km: { label:'km',     factor:0.00001,   decimals:5 },
+};
+
+let currentUnit = 'cm';
+let state = 'idle';
+let startPoint = null, endPoint = null, distanceCm = 0;
+let deviceBeta = 45, hasMotion = false;
+
+const video       = document.getElementById('video');
+const lineCanvas  = document.getElementById('line-canvas');
+const ctx         = lineCanvas.getContext('2d');
+const startDot    = document.getElementById('start-dot');
+const endDot      = document.getElementById('end-dot');
+const distBadge   = document.getElementById('distance-badge');
+const distVal     = document.getElementById('dist-val');
+const distUnit    = document.getElementById('dist-unit');
+const statusMsg   = document.getElementById('status-msg');
+const tapBtn      = document.getElementById('tap-btn');
+const allResults  = document.getElementById('all-results');
+const resultsGrid = document.getElementById('results-grid');
+const errBox      = document.getElementById('err-box');
+const errText     = document.getElementById('err-text');
+const startScreen = document.getElementById('start-screen');
+const vc          = document.getElementById('video-container');
+
+function fmt(v,d){ return parseFloat(v.toFixed(d)).toLocaleString(); }
+
+function resizeCanvas(){
+  lineCanvas.width  = vc.offsetWidth;
+  lineCanvas.height = vc.offsetHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// ── Open camera (called from button tap — satisfies browser gesture requirement) ──
+document.getElementById('start-btn').addEventListener('click', startCamera);
+document.getElementById('retry-btn').addEventListener('click', startCamera);
+
+async function startCamera(){
+  startScreen.style.display = 'none';
+  errBox.classList.remove('show');
+  statusMsg.textContent = 'Opening camera…';
+
+  try {
+    // Try rear camera first, fall back to any camera
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { exact: 'environment' } },
+        audio: false
+      });
+    } catch(e) {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false
+      });
+    }
+
+    video.srcObject = stream;
+    video.onloadedmetadata = () => {
+      video.play().catch(()=>{});
+      resizeCanvas();
+      statusMsg.textContent = 'Tap the takeoff spot on screen';
+    };
+
+    // Motion sensor for better accuracy
+    listenMotion();
+
+  } catch(err) {
+    console.error(err);
+    let msg = 'Camera blocked. ';
+    if(err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError'){
+      msg += 'In Brave: tap the lock icon in the address bar → Permissions → allow Camera. Then tap Try again.';
+    } else if(err.name === 'NotFoundError'){
+      msg += 'No camera found on this device.';
+    } else {
+      msg += err.message;
+    }
+    errText.textContent = msg;
+    errBox.classList.add('show');
+    statusMsg.textContent = 'Camera unavailable';
+  }
+}
+
+function listenMotion(){
+  window.addEventListener('deviceorientation', e => {
+    if(e.beta !== null){ deviceBeta = Math.max(10, Math.min(80, e.beta)); hasMotion = true; }
+  }, { passive: true });
+}
+
+// ── Tap on video to place measurement points ──
+vc.addEventListener('click', e => {
+  if(startScreen.style.display !== 'none') return;
+  if(errBox.classList.contains('show')) return;
+  if(!video.srcObject) return;
+
+  const rect = vc.getBoundingClientRect();
+  const pt = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  placeMeasurePoint(pt);
+});
+
+function placeMeasurePoint(pt){
+  if(state === 'idle'){
+    startPoint = pt;
+    placeDot(startDot, pt);
+    endDot.style.display = 'none';
+    ctx.clearRect(0,0,lineCanvas.width,lineCanvas.height);
+    distBadge.style.display = 'none';
+    allResults.style.display = 'none';
+    state = 'marked-start';
+    tapBtn.classList.add('measuring');
+    statusMsg.textContent = 'Now tap the landing spot';
+  } else if(state === 'marked-start'){
+    endPoint = pt;
+    placeDot(endDot, pt);
+    drawLine();
+    distanceCm = estimateCm(startPoint, endPoint);
+    updateBadge();
+    distBadge.style.display = 'block';
+    showAllResults();
+    state = 'done';
+    tapBtn.classList.remove('measuring');
+    statusMsg.textContent = 'Tap Reset to measure again';
+  }
+}
+
+// The big button uses screen centre as the point
+function handleTap(){
+  if(state === 'done'){ reset(); return; }
+  if(!video.srcObject) return;
+  placeMeasurePoint({ x: vc.offsetWidth/2, y: vc.offsetHeight/2 });
+}
+
+function placeDot(el, pt){
+  el.style.left = pt.x + 'px';
+  el.style.top  = pt.y + 'px';
+  el.style.display = 'block';
+}
+
+function drawLine(){
+  ctx.clearRect(0,0,lineCanvas.width,lineCanvas.height);
+  if(!startPoint || !endPoint) return;
+  ctx.beginPath();
+  ctx.moveTo(startPoint.x, startPoint.y);
+  ctx.lineTo(endPoint.x, endPoint.y);
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+  ctx.lineWidth = 2.5;
+  ctx.setLineDash([7,5]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function estimateCm(p1, p2){
+  const dx = p2.x - p1.x, dy = p2.y - p1.y;
+  const px = Math.sqrt(dx*dx + dy*dy);
+  const vh = vc.offsetHeight;
+  const tiltRad = deviceBeta * Math.PI / 180;
+  const camH = 1.0;
+  const fovRad = 60 * Math.PI / 180;
+  const groundM = 2 * camH * Math.tan(fovRad/2) / Math.cos(tiltRad);
+  return (px / vh) * groundM * 100;
+}
+
+function updateBadge(){
+  if(distanceCm <= 0) return;
+  const u = UNITS[currentUnit];
+  distVal.textContent  = fmt(distanceCm * u.factor, u.decimals);
+  distUnit.textContent = u.label;
+}
+
+function showAllResults(){
+  resultsGrid.innerHTML = '';
+  Object.entries(UNITS).forEach(([k,u]) => {
+    const v = distanceCm * u.factor;
+    resultsGrid.innerHTML += `<div class="result-item"><div class="result-val">${fmt(v,u.decimals)}</div><div class="result-lbl">${u.label}</div></div>`;
+  });
+  allResults.style.display = 'block';
+}
+
+document.querySelectorAll('.unit-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelector('.unit-btn.active').classList.remove('active');
+    btn.classList.add('active');
+    currentUnit = btn.dataset.unit;
+    if(distanceCm > 0) updateBadge();
+  });
+});
+
+function reset(){
+  state = 'idle';
+  startPoint = endPoint = null;
+  distanceCm = 0;
+  startDot.style.display = endDot.style.display = 'none';
+  ctx.clearRect(0,0,lineCanvas.width,lineCanvas.height);
+  distBadge.style.display = 'none';
+  allResults.style.display = 'none';
+  tapBtn.classList.remove('measuring');
+  statusMsg.textContent = 'Tap the takeoff spot on screen';
+}
+</script>
+</body>
+</html>
