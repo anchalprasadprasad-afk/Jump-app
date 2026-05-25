@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0a0a0f">
+<title>Jump Analyser</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0a0a0f;--surface:#111118;--surface2:#1a1a24;--border:rgba(255,255,255,0.08);
+  --accent:#c8ff00;--accent2:#00e5ff;--red:#ff4136;--amber:#ffb300;
+  --text:#f0f0f0;--muted:rgba(240,240,240,0.45);--mono:'DM Mono',monospace;--serif:'Instrument Serif',serif;
+}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);font-family:var(--mono);color:var(--text)}
+#app{width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden}
+
+/* ── VIDEO ZONE ── */
+#vc{position:relative;flex:1;overflow:hidden;background:#000;min-height:0}
+#video{width:100%;height:100%;object-fit:cover;display:block}
+#lc{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+
+/* dots */
+.dot{position:absolute;width:20px;height:20px;border-radius:50%;border:2.5px solid #fff;transform:translate(-50%,-50%);display:none;pointer-events:none;box-shadow:0 0 12px currentColor}
+#sdot{background:var(--accent);color:var(--accent)}
+#edot{background:var(--red);color:var(--red)}
+
+/* crosshair */
+#xhair{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:48px;height:48px;pointer-events:none;opacity:.8}
+#xhair::before,#xhair::after{content:'';position:absolute;background:#fff}
+#xhair::before{width:1.5px;height:100%;left:50%;transform:translateX(-50%)}
+#xhair::after{width:100%;height:1.5px;top:50%;transform:translateY(-50%)}
+#xhair .ring{position:absolute;inset:8px;border-radius:50%;border:1px solid rgba(255,255,255,.4)}
+
+/* phase badge */
+#phase-badge{position:absolute;top:14px;left:50%;transform:translateX(-50%);background:rgba(10,10,15,0.82);backdrop-filter:blur(8px);border:1px solid var(--border);padding:6px 18px;border-radius:999px;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);white-space:nowrap}
+
+/* recording indicator */
+#rec-dot{position:absolute;top:16px;left:16px;width:10px;height:10px;border-radius:50%;background:var(--red);display:none;animation:blink 1s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+
+/* ── CONTROLS ── */
+#controls{background:var(--surface);border-top:1px solid var(--border);padding:10px 14px 28px;flex-shrink:0}
+
+/* unit strip */
+#unit-strip{display:flex;gap:5px;flex-wrap:wrap;justify-content:center;margin-bottom:10px}
+.ubtn{padding:5px 13px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;cursor:pointer;font-family:var(--mono);letter-spacing:.04em;transition:all .15s}
+.ubtn.active{background:var(--accent);color:#000;border-color:var(--accent);font-weight:500}
+
+/* main action row */
+#action-row{display:flex;gap:10px;align-items:center;justify-content:center}
+#tap-btn{width:72px;height:72px;border-radius:50%;border:2.5px solid var(--accent);background:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative;transition:border-color .2s}
+#tap-inner{width:54px;height:54px;border-radius:50%;background:var(--accent);transition:all .18s}
+#tap-btn.phase-record #tap-inner{background:var(--red);width:28px;height:28px;border-radius:5px}
+#tap-btn.phase-record{border-color:var(--red)}
+#tap-btn.phase-end{border-color:var(--accent2)}
+#tap-btn.phase-end #tap-inner{background:var(--accent2)}
+.side-btn{padding:9px 18px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:12px;cursor:pointer;font-family:var(--mono);transition:all .2s}
+.side-btn:active{background:var(--surface2)}
+
+/* ── METRICS PANEL ── */
+#metrics{background:var(--bg);border-top:1px solid var(--border);padding:12px 14px;display:none;flex-shrink:0;overflow-y:auto;max-height:260px}
+#metrics-title{font-family:var(--serif);font-size:18px;font-style:italic;color:var(--accent);margin-bottom:10px;letter-spacing:-.01em}
+#metric-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.metric-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px 12px}
+.metric-card.wide{grid-column:1/-1}
+.mc-label{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.mc-val{font-size:22px;font-weight:500;color:#fff;line-height:1}
+.mc-unit{font-size:11px;color:var(--muted);margin-left:3px}
+.mc-sub{font-size:10px;color:var(--muted);margin-top:3px;line-height:1.4}
+.bar-wrap{margin-top:6px;height:4px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden}
+.bar-fill{height:100%;border-radius:2px;transition:width .4s ease;background:var(--accent)}
+.bar-fill.warn{background:var(--amber)}
+.bar-fill.bad{background:var(--red)}
+.score-ring{display:inline-block;font-size:28px;font-weight:300;line-height:1}
+
+/* ── ALL UNITS TABLE ── */
+#units-table{display:none;background:var(--surface2);border-top:1px solid var(--border);padding:10px 14px 14px;flex-shrink:0}
+#ut-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+.uc{background:var(--surface);border-radius:8px;padding:7px;text-align:center}
+.uc-v{font-size:14px;font-weight:500}
+.uc-l{font-size:9px;color:var(--muted);margin-top:1px;letter-spacing:.08em;text-transform:uppercase}
+
+/* ── START SCREEN ── */
+#sscreen{position:absolute;inset:0;background:var(--bg);z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:36px;text-align:center;gap:0}
+#ss-logo{font-family:var(--serif);font-size:36px;font-style:italic;color:var(--accent);line-height:1;margin-bottom:6px}
+#ss-sub{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin-bottom:24px}
+#ss-desc{color:var(--muted);font-size:13px;line-height:1.75;margin-bottom:32px;max-width:300px}
+#ss-steps{display:flex;flex-direction:column;gap:8px;margin-bottom:32px;width:100%;max-width:300px;text-align:left}
+.ss-step{display:flex;align-items:flex-start;gap:10px;font-size:12px;color:rgba(240,240,240,.6);line-height:1.5}
+.step-n{width:20px;height:20px;border-radius:50%;border:1px solid var(--accent);color:var(--accent);font-size:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+#open-btn{padding:15px 40px;border-radius:32px;border:none;background:var(--accent);color:#000;font-size:15px;font-weight:500;cursor:pointer;font-family:var(--mono);letter-spacing:.04em}
+
+/* ── ERROR ── */
+#err-box{display:none;position:absolute;inset:0;background:rgba(10,10,15,.94);z-index:25;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:28px;text-align:center}
+#err-box.show{display:flex}
+#err-p{color:var(--muted);font-size:13px;line-height:1.7;max-width:300px}
+#retry-btn{padding:12px 28px;border-radius:24px;border:none;background:#fff;color:#000;font-size:14px;cursor:pointer;font-family:var(--mono)}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- VIDEO -->
+  <div id="vc">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="lc"></canvas>
+    <div class="dot" id="sdot"></div>
+    <div class="dot" id="edot"></div>
+    <div id="xhair"><div class="ring"></div></div>
+    <div id="phase-badge">Tap takeoff spot</div>
+    <div id="rec-dot"></div>
+
+    <div id="sscreen">
+      <div id="ss-logo">Jump<br>Analyser</div>
+      <div id="ss-sub">Biomechanics · Performance</div>
+      <div id="ss-steps">
+        <div class="ss-step"><div class="step-n">1</div><span>Point camera at ground. Tap the <b>takeoff spot</b> (where your feet leave).</span></div>
+        <div class="ss-step"><div class="step-n">2</div><span>Perform your jump. Phone records motion data mid-air.</span></div>
+        <div class="ss-step"><div class="step-n">3</div><span>After landing, tap the <b>landing spot</b> (wherever you land — no need to see both in frame).</span></div>
+        <div class="ss-step"><div class="step-n">4</div><span>See distance, height, force (Newtons), stability, symmetry & alignment scores.</span></div>
+      </div>
+      <button id="open-btn">Open Camera</button>
+    </div>
+
+    <div id="err-box">
+      <p id="err-p">Could not access camera.</p>
+      <button id="retry-btn">Try again</button>
+    </div>
+  </div>
+
+  <!-- CONTROLS -->
+  <div id="controls">
+    <div id="unit-strip">
+      <button class="ubtn active" data-unit="cm">cm</button>
+      <button class="ubtn" data-unit="m">m</button>
+      <button class="ubtn" data-unit="in">inches</button>
+      <button class="ubtn" data-unit="ft">feet</button>
+      <button class="ubtn" data-unit="yd">yards</button>
+      <button class="ubtn" data-unit="km">km</button>
+    </div>
+    <div id="action-row">
+      <button class="side-btn" id="reset-btn">Reset</button>
+      <button id="tap-btn" id="main-tap"><div id="tap-inner"></div></button>
+      <button class="side-btn" id="info-btn">Units</button>
+    </div>
+  </div>
+
+  <!-- ALL UNITS TABLE -->
+  <div id="units-table"><div id="ut-grid"></div></div>
+
+  <!-- METRICS -->
+  <div id="metrics">
+    <div id="metrics-title">Jump Analysis</div>
+    <div id="metric-grid"></div>
+  </div>
+
+</div>
+
+<script>
+/* ─── Constants ─── */
+const UNITS={
+  cm:{label:'cm',factor:1,dec:1},
+  m:{label:'m',factor:0.01,dec:3},
+  in:{label:'in',factor:0.393701,dec:1},
+  ft:{label:'ft',factor:0.0328084,dec:2},
+  yd:{label:'yd',factor:0.0109361,dec:2},
+  km:{label:'km',factor:0.00001,dec:5}
+};
+const BODY_MASS_KG = 70; // default; physics estimate
+const G = 9.81;
+
+/* ─── DOM ─── */
+const video=document.getElementById('video'),lc=document.getElementById('lc'),ctx=lc.getContext('2d');
+const sdot=document.getElementById('sdot'),edot=document.getElementById('edot');
+const phaseBadge=document.getElementById('phase-badge');
+const tapBtn=document.getElementById('tap-btn'),tapInner=document.getElementById('tap-inner');
+const recDot=document.getElementById('rec-dot');
+const metricsEl=document.getElementById('metrics'),metricGrid=document.getElementById('metric-grid');
+const unitsTable=document.getElementById('units-table'),utGrid=document.getElementById('ut-grid');
+const sscreen=document.getElementById('sscreen'),errBox=document.getElementById('err-box'),errP=document.getElementById('err-p');
+const vc=document.getElementById('vc');
+
+/* ─── State ─── */
+let phase='idle'; // idle → marked-start → recording → done
+let startPt=null,endPt=null;
+let currentUnit='cm';
+let distCm=0;
+
+// Motion capture
+let motionSamples=[]; // {ax,ay,az,gx,gy,gz,t}
+let motionActive=false;
+let motionGranted=false;
+let jumpStartTime=null;
+
+// Sensor state
+let lastBeta=45;
+let hasOrient=false;
+let latAccelSamples=[]; // lateral (x) acceleration during flight
+let vertAccelSamples=[]; // vertical (y or z depending on device hold)
+let gyroDeltaSamples=[]; // rotation during landing
+
+/* ─── Resize canvas ─── */
+function resize(){lc.width=vc.offsetWidth;lc.height=vc.offsetHeight}
+window.addEventListener('resize',resize);resize();
+
+/* ─── Camera ─── */
+document.getElementById('open-btn').addEventListener('click',startCam);
+document.getElementById('retry-btn').addEventListener('click',startCam);
+
+async function startCam(){
+  sscreen.style.display='none';
+  errBox.classList.remove('show');
+  phaseBadge.textContent='Opening camera…';
+  try{
+    let stream;
+    try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{exact:'environment'}},audio:false})}
+    catch{stream=await navigator.mediaDevices.getUserMedia({video:true,audio:false})}
+    video.srcObject=stream;
+    video.onloadedmetadata=()=>{video.play().catch(()=>{});resize();phaseBadge.textContent='Tap the takeoff spot'};
+    await requestMotion();
+    listenSensors();
+  }catch(err){
+    let msg='Camera blocked. ';
+    if(err.name==='NotAllowedError'||err.name==='PermissionDeniedError') msg+='Tap the lock icon → Permissions → Camera → allow, then Try again.';
+    else if(err.name==='NotFoundError') msg+='No camera found.';
+    else msg+=err.message;
+    errP.textContent=msg;errBox.classList.add('show');
+    phaseBadge.textContent='Camera unavailable';
+  }
+}
+
+async function requestMotion(){
+  if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){
+    try{const r=await DeviceMotionEvent.requestPermission();motionGranted=r==='granted'}
+    catch{motionGranted=false}
+  } else {motionGranted=true}
+}
+
+function listenSensors(){
+  window.addEventListener('deviceorientation',e=>{
+    if(e.beta!==null){lastBeta=Math.max(10,Math.min(80,e.beta));hasOrient=true}
+  },{passive:true});
+
+  window.addEventListener('devicemotion',e=>{
+    if(!motionActive) return;
+    const ag=e.accelerationIncludingGravity||{};
+    const ra=e.rotationRate||{};
+    const t=Date.now();
+    motionSamples.push({
+      ax:ag.x||0, ay:ag.y||0, az:ag.z||0,
+      gx:ra.alpha||0, gy:ra.beta||0, gz:ra.gamma||0,
+      t
+    });
+  },{passive:true});
+}
+
+/* ─── Video click → place point ─── */
+vc.addEventListener('click',e=>{
+  if(sscreen.style.display!=='none'||errBox.classList.contains('show')||!video.srcObject) return;
+  const r=vc.getBoundingClientRect();
+  placePt({x:e.clientX-r.left,y:e.clientY-r.top});
+});
+
+/* ─── Main tap button ─── */
+tapBtn.addEventListener('click',()=>{
+  if(!video.srcObject){return}
+  if(phase==='done'){reset();return}
+  if(phase==='recording'){
+    // force-end recording by tapping end in centre
+    placePt({x:vc.offsetWidth/2,y:vc.offsetHeight/2});
+    return;
+  }
+  placePt({x:vc.offsetWidth/2,y:vc.offsetHeight/2});
+});
+
+function placePt(pt){
+  if(phase==='idle'){
+    // Mark takeoff
+    startPt=pt;
+    placeDot(sdot,pt);edot.style.display='none';
+    ctx.clearRect(0,0,lc.width,lc.height);
+    metricsEl.style.display='none';unitsTable.style.display='none';
+    phase='marked-start';
+    tapBtn.classList.add('phase-record');
+    phaseBadge.textContent='Recording… jump now!';
+    recDot.style.display='block';
+    // Start motion capture
+    motionSamples=[];jumpStartTime=Date.now();motionActive=true;
+    // Show that recording is active with a subtle canvas pulse
+    startRecordingVisual();
+  } else if(phase==='marked-start'||phase==='recording'){
+    // Mark landing
+    endPt=pt;
+    motionActive=false;
+    recDot.style.display='none';
+    placeDot(edot,pt);
+    drawLine();
+    distCm=estimateCm(startPt,endPt);
+    analyse();
+    phase='done';
+    tapBtn.classList.remove('phase-record');tapBtn.classList.add('phase-end');
+    phaseBadge.textContent='Tap Reset to go again';
+  }
+}
+
+function placeDot(el,pt){el.style.left=pt.x+'px';el.style.top=pt.y+'px';el.style.display='block'}
+
+function drawLine(){
+  ctx.clearRect(0,0,lc.width,lc.height);
+  if(!startPt||!endPt) return;
+  ctx.beginPath();ctx.moveTo(startPt.x,startPt.y);ctx.lineTo(endPt.x,endPt.y);
+  ctx.strokeStyle='rgba(200,255,0,0.75)';ctx.lineWidth=2;ctx.setLineDash([6,5]);ctx.stroke();ctx.setLineDash([]);
+}
+
+let pulseRaf=null;
+function startRecordingVisual(){
+  let t=0;
+  function tick(){
+    if(phase!=='marked-start'&&phase!=='recording'){ctx.clearRect(0,0,lc.width,lc.height);return}
+    ctx.clearRect(0,0,lc.width,lc.height);
+    if(startPt){
+      const r=8+Math.sin(t*0.08)*4;
+      ctx.beginPath();ctx.arc(startPt.x,startPt.y,r,0,Math.PI*2);
+      ctx.strokeStyle=`rgba(200,255,0,${0.5+Math.sin(t*0.08)*0.3})`;ctx.lineWidth=2;ctx.stroke();
+    }
+    t++;pulseRaf=requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+/* ─── Estimation ─── */
+function estimateCm(p1,p2){
+  const dx=p2.x-p1.x,dy=p2.y-p1.y;
+  const px=Math.sqrt(dx*dx+dy*dy);
+  const vh=lc.offsetHeight;
+  const tiltRad=lastBeta*Math.PI/180;
+  const camH=1.0;
+  const fovRad=62*Math.PI/180;
+  const groundM=2*camH*Math.tan(fovRad/2)/Math.cos(tiltRad);
+  return(px/vh)*groundM*100;
+}
+
+/* ─── Analysis ─── */
+function analyse(){
+  const n=motionSamples.length;
+  const flightMs=(n>1)?motionSamples[n-1].t-motionSamples[0].t:0;
+
+  // ── Jump HEIGHT from flight time (physics: h = g·t²/8 for symmetric jump)
+  // If we have vertical accel data, use impulse method; else use flight time
+  let heightCm=0, heightMethod='flight time';
+  if(n>2){
+    // Compute net vertical accel (az on a held phone points up)
+    // Gravity ~9.81; subtract gravity bias, look for upward impulse
+    const azArr=motionSamples.map(s=>s.az);
+    const azMean=azArr.reduce((a,b)=>a+b,0)/azArr.length;
+    // Peak positive az above mean = upward thrust
+    const azPeaks=azArr.filter(v=>v>azMean+2);
+    const peakAz=azPeaks.length?azPeaks.reduce((a,b)=>Math.max(a,b)):0;
+
+    if(flightMs>100 && flightMs<2500){
+      // h = g * (t/2)^2 / 2  where t is full flight time
+      const tSec=flightMs/1000;
+      heightCm=((G*(tSec/2)*(tSec/2))/2)*100;
+      heightMethod='flight time';
+    } else if(peakAz>2){
+      // impulse estimate: rough v0 from peak accel * dt
+      const dt=1/motionSamples.length;
+      const v0=peakAz*dt;
+      heightCm=(v0*v0)/(2*G)*100;
+      heightMethod='accel peak';
+    } else {
+      // Geometric fallback: ~30% of jump distance for average standing jump
+      heightCm=distCm*0.30;
+      heightMethod='estimated';
+    }
+  } else {
+    heightCm=distCm*0.30;
+    heightMethod='estimated';
+  }
+  heightCm=Math.max(1,Math.min(heightCm,200));
+
+  // ── FORCE (Newtons) ──
+  // Peak ground reaction force ≈ m * (1 + v²/(2·h·g)) * g  (simplified jump-off model)
+  // v at takeoff from height: v=sqrt(2gh)
+  const hM=heightCm/100;
+  const v0=Math.sqrt(2*G*hM);
+  // Ground contact time during takeoff ≈ 0.2s typical
+  const contactT=0.20;
+  // Impulse-momentum: F*t = m*(v0 - (-v0)) for symmetric jump → F = 2m*v0/t + m*g (body weight)
+  const forceN=Math.round((2*BODY_MASS_KG*v0/contactT)+(BODY_MASS_KG*G));
+  // Power = F * v0
+  const powerW=Math.round(forceN*v0);
+
+  // ── LATERAL SYMMETRY ──
+  // Compare lateral (x-axis) accelerometer deviation: symmetric jump = near-zero mean lateral
+  let symmetryScore=100, latDeviation=0;
+  if(n>3){
+    const axArr=motionSamples.map(s=>s.ax);
+    const axMean=axArr.reduce((a,b)=>a+b,0)/n;
+    latDeviation=Math.abs(axMean); // m/s² → higher = more lateral bias
+    // Map 0..4 m/s² to 100..0 score
+    symmetryScore=Math.round(Math.max(0,Math.min(100,100-(latDeviation/4)*100)));
+  }
+
+  // ── STABILITY & ALIGNMENT at landing ──
+  // Use gyroscope during last 30% of samples (landing phase)
+  let stabilityScore=100, alignmentScore=100, landingRoll=0, landingPitch=0;
+  if(n>5){
+    const landSamples=motionSamples.slice(Math.floor(n*0.7));
+    const gzArr=landSamples.map(s=>s.gz); // forward/backward tilt rate
+    const gxArr=landSamples.map(s=>s.gx); // side lean rate
+    const gzRms=Math.sqrt(gzArr.reduce((a,b)=>a+b*b,0)/gzArr.length);
+    const gxRms=Math.sqrt(gxArr.reduce((a,b)=>a+b*b,0)/gxArr.length);
+    landingPitch=gzRms; landingRoll=gxRms;
+    // Map 0..200 deg/s → 100..0 score
+    stabilityScore=Math.round(Math.max(0,Math.min(100,100-(gzRms/200)*100)));
+    alignmentScore=Math.round(Math.max(0,Math.min(100,100-(gxRms/200)*100)));
+  } else {
+    // No motion data — can't assess; show N/A
+    stabilityScore=null; alignmentScore=null; symmetryScore=null;
+  }
+
+  renderMetrics({
+    distCm, heightCm, heightMethod,
+    forceN, powerW, v0,
+    symmetryScore, latDeviation,
+    stabilityScore, alignmentScore,
+    flightMs
+  });
+}
+
+function scoreColor(s){
+  if(s===null) return 'var(--muted)';
+  if(s>=80) return 'var(--accent)';
+  if(s>=55) return 'var(--amber)';
+  return 'var(--red)';
+}
+function scoreBar(s){
+  if(s===null) return '';
+  const cls=s>=80?'':s>=55?' warn':' bad';
+  return `<div class="bar-wrap"><div class="bar-fill${cls}" style="width:${s}%"></div></div>`;
+}
+function scoreLabel(s){
+  if(s===null) return 'No sensor data';
+  if(s>=80) return 'Excellent';
+  if(s>=60) return 'Good';
+  if(s>=40) return 'Fair';
+  return 'Needs work';
+}
+
+function renderMetrics(d){
+  const u=UNITS[currentUnit];
+  const dist=fmt(d.distCm*u.factor,u.dec);
+  const h=fmt(d.heightCm*0.01,3); // height in metres
+  const hCm=fmt(d.heightCm,1);
+  const hIn=fmt(d.heightCm*0.393701,1);
+  const hasScore=d.symmetryScore!==null;
+
+  metricGrid.innerHTML=`
+    <div class="metric-card wide">
+      <div class="mc-label">Jump Distance</div>
+      <div class="mc-val">${dist}<span class="mc-unit">${u.label}</span></div>
+      <div class="mc-sub">≈ ${hCm} cm altitude · ${hIn} inches height · <i>${d.heightMethod}</i></div>
+    </div>
+
+    <div class="metric-card">
+      <div class="mc-label">Peak Height</div>
+      <div class="mc-val">${hCm}<span class="mc-unit">cm</span></div>
+      <div class="mc-sub">${fmt(d.heightCm*0.393701,1)} in · ${fmt(d.heightCm*0.0328084,2)} ft</div>
+    </div>
+
+    <div class="metric-card">
+      <div class="mc-label">Flight Time</div>
+      <div class="mc-val">${d.flightMs>0?d.flightMs:'—'}<span class="mc-unit">${d.flightMs>0?'ms':''}</span></div>
+      <div class="mc-sub">${d.flightMs>0?fmt(d.flightMs/1000,2)+' seconds':'No motion data'}</div>
+    </div>
+
+    <div class="metric-card">
+      <div class="mc-label">Peak Force</div>
+      <div class="mc-val" style="color:var(--accent2)">${d.forceN}<span class="mc-unit">N</span></div>
+      <div class="mc-sub">${fmt(d.forceN/G,0)} kg · ${fmt(d.forceN*0.2248,0)} lbf</div>
+    </div>
+
+    <div class="metric-card">
+      <div class="mc-label">Takeoff Power</div>
+      <div class="mc-val" style="color:var(--accent2)">${d.powerW}<span class="mc-unit">W</span></div>
+      <div class="mc-sub">≈ ${fmt(d.powerW*0.00134102,2)} hp · v₀ ${fmt(d.v0,2)} m/s</div>
+    </div>
+
+    <div class="metric-card">
+      <div class="mc-label">Leg Symmetry</div>
+      <div class="mc-val" style="color:${scoreColor(d.symmetryScore)}">${d.symmetryScore??'—'}<span class="mc-unit">${d.symmetryScore!==null?'/100':''}</span></div>
+      <div class="mc-sub">${hasScore?scoreLabel(d.symmetryScore)+' · lateral drift '+fmt(d.latDeviation,2)+' m/s²':'Enable motion sensors'}</div>
+      ${scoreBar(d.symmetryScore)}
+    </div>
+
+    <div class="metric-card">
+      <div class="mc-label">Landing Stability</div>
+      <div class="mc-val" style="color:${scoreColor(d.stabilityScore)}">${d.stabilityScore??'—'}<span class="mc-unit">${d.stabilityScore!==null?'/100':''}</span></div>
+      <div class="mc-sub">${hasScore?scoreLabel(d.stabilityScore)+' · fwd/bk rotation':'Enable motion sensors'}</div>
+      ${scoreBar(d.stabilityScore)}
+    </div>
+
+    <div class="metric-card">
+      <div class="mc-label">Leg Alignment</div>
+      <div class="mc-val" style="color:${scoreColor(d.alignmentScore)}">${d.alignmentScore??'—'}<span class="mc-unit">${d.alignmentScore!==null?'/100':''}</span></div>
+      <div class="mc-sub">${hasScore?scoreLabel(d.alignmentScore)+' · side lean':'Enable motion sensors'}</div>
+      ${scoreBar(d.alignmentScore)}
+    </div>
+  `;
+
+  metricsEl.style.display='block';
+
+  // All-units table
+  utGrid.innerHTML=Object.entries(UNITS).map(([k,u])=>{
+    const v=d.distCm*u.factor;
+    return `<div class="uc"><div class="uc-v">${fmt(v,u.dec)}</div><div class="uc-l">${u.label}</div></div>`;
+  }).join('');
+}
+
+/* ─── Reset ─── */
+document.getElementById('reset-btn').addEventListener('click',reset);
+function reset(){
+  phase='idle';startPt=endPt=null;distCm=0;motionActive=false;motionSamples=[];
+  sdot.style.display=edot.style.display='none';
+  ctx.clearRect(0,0,lc.width,lc.height);
+  metricsEl.style.display='none';unitsTable.style.display='none';
+  tapBtn.classList.remove('phase-record','phase-end');
+  recDot.style.display='none';
+  phaseBadge.textContent='Tap the takeoff spot';
+  if(pulseRaf){cancelAnimationFrame(pulseRaf);pulseRaf=null}
+}
+
+/* ─── Unit buttons ─── */
+document.querySelectorAll('.ubtn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelector('.ubtn.active').classList.remove('active');
+    btn.classList.add('active');
+    currentUnit=btn.dataset.unit;
+    if(distCm>0){
+      const u=UNITS[currentUnit];
+      // update badge if visible
+      const dv=document.querySelector('.mc-val');
+      // re-render if done
+      if(phase==='done') analyse();
+    }
+  });
+});
+
+/* ─── Info / units toggle ─── */
+document.getElementById('info-btn').addEventListener('click',()=>{
+  const t=unitsTable;
+  t.style.display=t.style.display==='none'||!t.style.display?'block':'none';
+});
+
+function fmt(v,d){return parseFloat(v.toFixed(d)).toLocaleString('en-GB')}
+</script>
+</body>
+</html>
